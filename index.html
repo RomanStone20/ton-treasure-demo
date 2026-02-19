@@ -2,13 +2,13 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt</title>
+<title>TON Treasure Hunt — Mini App Demo v3</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   body {margin:0;padding:0;background:#0a0a0a;font-family:'Press Start 2P',sans-serif;color:#fff;overflow:hidden;max-width:390px;margin:0 auto;height:100vh;display:flex;flex-direction:column;}
-  #header {background:#111;padding:10px;text-align:center;border-bottom:3px solid #0088ff;font-size:16px;}
+  #header {background:#111;padding:10px;text-align:center;border-bottom:3px solid #0088ff;}
+  #balance {font-size:18px;}
   #mapContainer {flex:1;overflow:auto;background:#000;position:relative;}
   #grid {display:grid;grid-template-columns:repeat(35,10px);gap:1px;background:#222;margin:10px auto;}
   .cell {width:10px;height:10px;display:flex;align-items:center;justify-content:center;font-size:9px;cursor:pointer;position:relative;border:0.5px solid #333;}
@@ -23,7 +23,9 @@
 </style>
 </head>
 <body>
-<div id="header">TON Treasure Hunt</div>
+<div id="header">
+  <div>Баланс: <b><span id="balance">10.00</span></b> TON</div>
+</div>
 
 <div id="mapContainer">
   <div id="grid"></div>
@@ -32,21 +34,21 @@
 <div style="padding:8px;background:#111;display:flex;flex-wrap:wrap;justify-content:center;gap:5px;">
   <button onclick="deposit()">+10 TON</button>
   <button onclick="simulateBots()">Ход ботов</button>
-  <button onclick="simulateJointMove()">Совместный ход</button>
+  <button onclick="simulateJointMove()">Совместный ход (деление)</button>
   <button onclick="withdrawPrompt()">Вывести</button>
 </div>
 
-<div id="log">Демо v3.1 готова для Telegram!<br>Кликни клетку → войди за 1 TON</div>
+<div id="log">Демо v3 готова!<br>Кликни любую клетку → войди за 1 TON.<br>Сокровища видны сразу при открытии клетки!</div>
 
 <script>
-// ====================== TELEGRAM INIT ======================
-const tg = window.Telegram.WebApp;
-tg.expand();
-tg.ready();
-tg.setHeaderColor('#111111');
-tg.setBackgroundColor('#0a0a0a');
+// Telegram Mini App
+if (window.Telegram && Telegram.WebApp) {
+  Telegram.WebApp.expand();
+  Telegram.WebApp.ready();
+  Telegram.WebApp.setHeaderColor('#111');
+}
 
-// ====================== ИГРА ======================
+// ================== НАСТРОЙКИ ==================
 const SIZE = 35;
 let balance = 10.0;
 let totalSpent = 0.0;
@@ -63,17 +65,18 @@ let players = [
 let revealed = new Set();
 let treasures = {};
 let foundTreasures = new Set();
-const discoveryPercents = [2,3,1,4,5,6,7,8,9,10,12,18];
+const discoveryPercents = [2,3,1,4,5,6,7,8,9,10,12,18]; // 85%
 let discoveredOrder = 0;
 
 const treasurePos = [[3,3],[8,15],[25,4],[15,22],[6,27],[28,12],[10,7],[27,27],[12,30],[30,5],[18,18],[5,32]];
 
+// ================== ИНИЦИАЛИЗАЦИЯ ==================
 function init() {
   treasurePos.forEach(p => treasures[`${p[0]},${p[1]}`] = true);
   createGrid();
   updateGrid();
   updateUI();
-  log('✅ Мини-апп загружена в Telegram!');
+  log('Добро пожаловать в демо v3 для Telegram Mini App!');
 }
 
 function createGrid() {
@@ -92,8 +95,133 @@ function createGrid() {
   }
 }
 
-// ... (остальной код полностью такой же, как в v3 — я не стал его дублировать здесь для краткости, но в реальном файле он весь есть ниже в полном виде)
+function updateGrid() {
+  document.querySelectorAll('.cell').forEach(cell => {
+    const x = +cell.dataset.x, y = +cell.dataset.y;
+    const key = `${x},${y}`;
+    const isRev = revealed.has(key);
+    const hasTreasure = treasures[key] && !foundTreasures.has(key);
 
+    cell.classList.toggle('fog', !isRev);
+    cell.classList.toggle('revealed', isRev && !hasTreasure);
+    cell.classList.toggle('treasure', isRev && hasTreasure);
+
+    cell.innerHTML = (isRev && hasTreasure) ? '💎' : '';
+
+    // игроки
+    cell.querySelectorAll('.player').forEach(p => p.remove());
+  });
+
+  players.forEach(p => {
+    if (p.pos.x < 0) return;
+    const cell = document.querySelector(`.cell[data-x="${p.pos.x}"][data-y="${p.pos.y}"]`);
+    if (cell) {
+      const el = document.createElement('div');
+      el.className = 'player';
+      el.style.backgroundColor = p.color;
+      el.textContent = p.name[0];
+      cell.appendChild(el);
+    }
+  });
+}
+
+// ================== ЛОГИКА ==================
+function revealAround(x, y) {
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) revealed.add(`${nx},${ny}`);
+    }
+  }
+}
+
+function handleClick(x, y) {
+  if (!spawned) {
+    if (balance < 1) return alert('Нужно 1 TON для входа');
+    if (!confirm('Войти? 1 TON')) return;
+    balance -= 1; totalSpent += 1;
+    spawned = true;
+    playerPos = {x, y};
+    players[0].pos = {x, y};
+    revealAround(x, y);
+    updateUI(); updateGrid();
+    log(`Ты заспавнился (${x},${y})`);
+    checkTreasure(x, y);
+    return;
+  }
+
+  const dx = Math.abs(x - playerPos.x);
+  const dy = Math.abs(y - playerPos.y);
+  if (dx <= 1 && dy <= 1) {
+    if (balance < 0.01) return alert('Нужно 0.01 TON');
+    if (!confirm('Переместиться? 0.01 TON')) return;
+    balance -= 0.01; totalSpent += 0.01;
+    playerPos = {x, y};
+    players[0].pos = {x, y};
+    revealAround(x, y);
+    updateUI(); updateGrid();
+    log(`Переход → (${x},${y})`);
+    checkTreasure(x, y);
+  } else alert('Только соседние клетки!');
+}
+
+function checkTreasure(x, y) {
+  const key = `${x},${y}`;
+  if (!treasures[key] || foundTreasures.has(key)) return;
+
+  const percent = discoveryPercents[discoveredOrder];
+  const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
+
+  if (confirm(`💎 КЛАД ВИДЕН ВСЕМ!\nТы встал на него!\nСумма: ${value} TON\nЗабрать?`)) {
+    balance += value;
+    foundTreasures.add(key);
+    delete treasures[key];
+    discoveredOrder++;
+    log(`ТЫ ЗАБРАЛ КЛАД +${value} TON (${percent}%)`);
+    updateUI(); updateGrid();
+
+    if (Object.keys(treasures).length === 0) alert('🏆 Все сокровища найдены!');
+  }
+}
+
+// ================== СИМУЛЯЦИЯ ==================
+function simulateBots() {
+  players.slice(1).forEach(p => {
+    const nx = Math.max(0, Math.min(SIZE-1, p.pos.x + (Math.random()>0.5?1:-1)));
+    const ny = Math.max(0, Math.min(SIZE-1, p.pos.y + (Math.random()>0.5?1:-1)));
+    p.pos.x = nx; p.pos.y = ny;
+    revealAround(nx, ny);
+  });
+  updateGrid();
+  log('Боты сделали ход');
+}
+
+function simulateJointMove() {
+  log('🔥 Симуляция совместного хода...');
+  const targetX = 12, targetY = 12; // пример клетки с кладом
+  players.slice(1).forEach((p,i) => {
+    p.pos.x = targetX + (i-1);
+    p.pos.y = targetY;
+    revealAround(p.pos.x, p.pos.y);
+  });
+  revealAround(targetX, targetY);
+  updateGrid();
+
+  const key = `${targetX},${targetY}`;
+  if (treasures[key]) {
+    const percent = discoveryPercents[discoveredOrder];
+    const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
+    const share = parseFloat((value / 3).toFixed(2));
+    log(`💎 Клад делится между 3 игроками! Каждый получил по ${share} TON`);
+    balance += share; // только тебе
+    foundTreasures.add(key);
+    delete treasures[key];
+    discoveredOrder++;
+    updateUI(); updateGrid();
+  }
+}
+
+// UI
 function updateUI() { document.getElementById('balance').textContent = balance.toFixed(2); }
 function log(msg) {
   const l = document.getElementById('log');
