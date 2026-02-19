@@ -2,23 +2,24 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — Mini App Demo v3</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TON Treasure Hunt — Mini App v3.2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   body {margin:0;padding:0;background:#0a0a0a;font-family:'Press Start 2P',sans-serif;color:#fff;overflow:hidden;max-width:390px;margin:0 auto;height:100vh;display:flex;flex-direction:column;}
-  #header {background:#111;padding:10px;text-align:center;border-bottom:3px solid #0088ff;}
+  #header {background:#111;padding:12px;text-align:center;border-bottom:3px solid #0088ff;font-size:16px;}
   #balance {font-size:18px;}
-  #mapContainer {flex:1;overflow:auto;background:#000;position:relative;}
-  #grid {display:grid;grid-template-columns:repeat(35,10px);gap:1px;background:#222;margin:10px auto;}
-  .cell {width:10px;height:10px;display:flex;align-items:center;justify-content:center;font-size:9px;cursor:pointer;position:relative;border:0.5px solid #333;}
+  #mapContainer {flex:1;overflow:auto;background:#000;position:relative;-webkit-overflow-scrolling:touch;} /* для smooth touch */
+  #grid {display:grid;grid-template-columns:repeat(35,18px);gap:1px;background:#222;margin:15px auto;touch-action:manipulation;} /* touch-action для точных тапов */
+  .cell {width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;position:relative;border:0.5px solid #333;user-select:none;}
   .fog {background:#111;}
   .revealed {background:#3a3;}
   .forest {background:#252;}
   .treasure {background:#ff0;color:#000;font-weight:bold;box-shadow:0 0 8px #ff0;}
-  .player {position:absolute;width:8px;height:8px;border-radius:50%;border:1.5px solid #fff;z-index:10;font-size:6px;display:flex;align-items:center;justify-content:center;}
-  #log {height:140px;overflow-y:auto;background:#111;padding:8px;font-size:11px;line-height:1.3;border-top:3px solid #0088ff;}
-  button {background:#0088ff;color:white;border:none;padding:12px;margin:5px;border-radius:4px;font-family:inherit;font-size:13px;cursor:pointer;}
+  .player {position:absolute;width:14px;height:14px;border-radius:50%;border:1.5px solid #fff;z-index:10;font-size:8px;display:flex;align-items:center;justify-content:center;}
+  #log {height:150px;overflow-y:auto;background:#111;padding:10px;font-size:12px;line-height:1.4;border-top:3px solid #0088ff;}
+  button {background:#0088ff;color:white;border:none;padding:15px 20px;margin:6px;border-radius:6px;font-family:inherit;font-size:14px;cursor:pointer;min-width:100px;}
   button:active {background:#00aaff;}
 </style>
 </head>
@@ -31,24 +32,24 @@
   <div id="grid"></div>
 </div>
 
-<div style="padding:8px;background:#111;display:flex;flex-wrap:wrap;justify-content:center;gap:5px;">
+<div style="padding:10px;background:#111;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;">
   <button onclick="deposit()">+10 TON</button>
   <button onclick="simulateBots()">Ход ботов</button>
   <button onclick="simulateJointMove()">Совместный ход (деление)</button>
   <button onclick="withdrawPrompt()">Вывести</button>
 </div>
 
-<div id="log">Демо v3 готова!<br>Кликни любую клетку → войди за 1 TON.<br>Сокровища видны сразу при открытии клетки!</div>
+<div id="log">Демо v3.2 готова!<br>Кликни любую клетку → войди за 1 TON.<br>Сокровища видны сразу при открытии клетки!</div>
 
 <script>
-// Telegram Mini App
-if (window.Telegram && Telegram.WebApp) {
-  Telegram.WebApp.expand();
-  Telegram.WebApp.ready();
-  Telegram.WebApp.setHeaderColor('#111');
-}
+// ====================== TELEGRAM INIT ======================
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+tg.setHeaderColor('#111111');
+tg.setBackgroundColor('#0a0a0a');
 
-// ================== НАСТРОЙКИ ==================
+// ====================== ИГРА ======================
 const SIZE = 35;
 let balance = 10.0;
 let totalSpent = 0.0;
@@ -70,18 +71,18 @@ let discoveredOrder = 0;
 
 const treasurePos = [[3,3],[8,15],[25,4],[15,22],[6,27],[28,12],[10,7],[27,27],[12,30],[30,5],[18,18],[5,32]];
 
-// ================== ИНИЦИАЛИЗАЦИЯ ==================
+// ИНИЦИАЛИЗАЦИЯ
 function init() {
   treasurePos.forEach(p => treasures[`${p[0]},${p[1]}`] = true);
   createGrid();
   updateGrid();
   updateUI();
-  log('Добро пожаловать в демо v3 для Telegram Mini App!');
+  log('✅ Мини-апп v3.2 загружена в Telegram! Удобно для пальцев.');
 }
 
 function createGrid() {
   const grid = document.getElementById('grid');
-  grid.style.gridTemplateColumns = `repeat(${SIZE}, 10px)`;
+  grid.style.gridTemplateColumns = `repeat(${SIZE}, 18px)`;
   grid.innerHTML = '';
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
@@ -89,7 +90,8 @@ function createGrid() {
       cell.className = 'cell fog';
       cell.dataset.x = x;
       cell.dataset.y = y;
-      cell.onclick = () => handleClick(x, y);
+      cell.addEventListener('click', () => handleClick(x, y));
+      cell.addEventListener('touchstart', () => handleClick(x, y), {passive: true}); // для touch
       grid.appendChild(cell);
     }
   }
@@ -125,7 +127,7 @@ function updateGrid() {
   });
 }
 
-// ================== ЛОГИКА ==================
+// ЛОГИКА
 function revealAround(x, y) {
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
@@ -136,6 +138,7 @@ function revealAround(x, y) {
 }
 
 function handleClick(x, y) {
+  const key = `${x},${y}`;
   if (!spawned) {
     if (balance < 1) return alert('Нужно 1 TON для входа');
     if (!confirm('Войти? 1 TON')) return;
@@ -152,7 +155,7 @@ function handleClick(x, y) {
 
   const dx = Math.abs(x - playerPos.x);
   const dy = Math.abs(y - playerPos.y);
-  if (dx <= 1 && dy <= 1) {
+  if (dx <= 1 && dy <= 1 && !(dx===0 && dy===0)) {
     if (balance < 0.01) return alert('Нужно 0.01 TON');
     if (!confirm('Переместиться? 0.01 TON')) return;
     balance -= 0.01; totalSpent += 0.01;
@@ -184,7 +187,7 @@ function checkTreasure(x, y) {
   }
 }
 
-// ================== СИМУЛЯЦИЯ ==================
+// СИМУЛЯЦИЯ
 function simulateBots() {
   players.slice(1).forEach(p => {
     const nx = Math.max(0, Math.min(SIZE-1, p.pos.x + (Math.random()>0.5?1:-1)));
@@ -198,22 +201,22 @@ function simulateBots() {
 
 function simulateJointMove() {
   log('🔥 Симуляция совместного хода...');
-  const targetX = 12, targetY = 12; // пример клетки с кладом
+  const targetX = 3, targetY = 3; // пример клетки с кладом (из treasurePos)
   players.slice(1).forEach((p,i) => {
-    p.pos.x = targetX + (i-1);
+    p.pos.x = targetX;
     p.pos.y = targetY;
     revealAround(p.pos.x, p.pos.y);
   });
-  revealAround(targetX, targetY);
   updateGrid();
 
   const key = `${targetX},${targetY}`;
   if (treasures[key]) {
     const percent = discoveryPercents[discoveredOrder];
     const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
-    const share = parseFloat((value / 3).toFixed(2));
-    log(`💎 Клад делится между 3 игроками! Каждый получил по ${share} TON`);
-    balance += share; // только тебе
+    const numPlayersOnCell = 3; // симуляция 3 ботов + ты (но только боты)
+    const share = parseFloat((value / numPlayersOnCell).toFixed(2));
+    log(`💎 Клад делится между ${numPlayersOnCell} игроками! Каждый получил по ${share} TON`);
+    balance += share; // только тебе в симуляции
     foundTreasures.add(key);
     delete treasures[key];
     discoveredOrder++;
@@ -222,14 +225,19 @@ function simulateJointMove() {
 }
 
 // UI
-function updateUI() { document.getElementById('balance').textContent = balance.toFixed(2); }
+function updateUI() {
+  document.getElementById('balance').textContent = balance.toFixed(2);
+}
+
 function log(msg) {
   const l = document.getElementById('log');
   const t = new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   l.innerHTML += `<div>[${t}] ${msg}</div>`;
   l.scrollTop = l.scrollHeight;
 }
+
 function deposit() { balance += 10; updateUI(); log('+10 TON (тест)'); }
+
 function withdrawPrompt() {
   const s = prompt('Сколько вывести? Доступно: ' + balance.toFixed(2));
   if (s && +s > 0 && +s <= balance) { balance -= +s; updateUI(); log(`Выведено ${s} TON`); }
