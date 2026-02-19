@@ -2,11 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — v4.4 Рабочая</title>
+<title>TON Treasure Hunt — Demo с ботами и зумом</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   body {margin:0;padding:0;background:#0a0a0a;font-family:'Press Start 2P',sans-serif;color:#fff;overflow:hidden;max-width:390px;margin:0 auto;height:100vh;display:flex;flex-direction:column;}
@@ -33,32 +31,29 @@
 
 <div style="padding:6px;background:#111;display:flex;flex-wrap:wrap;justify-content:center;gap:4px;">
   <button onclick="deposit()">+10 TON</button>
+  <button onclick="simulateBots()">Ход ботов</button>
+  <button onclick="simulateJointMove()">Совместный ход</button>
   <button onclick="withdrawPrompt()">Вывести</button>
   <button onclick="zoomIn()">+</button>
   <button onclick="zoomOut()">−</button>
 </div>
 
-<div id="log">v4.4 готова! Карта работает, зум/drag на месте. Тести с другом.</div>
+<div id="log">Демо с ботами и зумом готова! Зум пальцами + drag одним пальцем.</div>
 
 <script>
-// Telegram
-const tg = window.Telegram.WebApp;
-tg.expand(); tg.ready(); tg.setHeaderColor('#111111'); tg.setBackgroundColor('#0a0a0a');
-
-// Supabase
-const SUPABASE_URL = 'https://yrbmrtmsqydklqgpdakz.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_bTXlaXpI9WpusTXDLml99A_k2_-_TOW';
-const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth: {persistSession: false}});
-
-// Игра
+// ================== ИГРА ==================
 const SIZE = 40;
 let balance = 10.0;
 let totalSpent = 0.0;
 let spawned = false;
 let playerPos = {x:-1, y:-1};
-const ROOM = 'room1';
-let myPlayerId = tg.initDataUnsafe?.user?.id || 'player1'; // уникальный ID
-let players = new Map(); // все игроки: id → {pos, color}
+
+let players = [
+  {name:'Ты', pos:{x:-1,y:-1}, color:'#00f'},
+  {name:'Bot1', pos:{x:5,y:5}, color:'#f00'},
+  {name:'Bot2', pos:{x:20,y:10}, color:'#0f0'},
+  {name:'Bot3', pos:{x:15,y:25}, color:'#ff0'}
+];
 
 let revealed = new Set();
 let treasures = {};
@@ -72,13 +67,11 @@ let panInstance;
 
 function init() {
   treasurePos.forEach(p => treasures[`${p[0]},${p[1]}`] = true);
-  players.set(myPlayerId, {pos: playerPos, color: '#00f'}); // ты синий
   createGrid();
   initPanzoom();
   updateGrid();
   updateUI();
-  connectRealtime();
-  log('✅ v4.4 загружена. Всё работает!');
+  log('✅ Демо загружена. Кликни клетку для входа. Зум/драг работают!');
 }
 
 function createGrid() {
@@ -125,14 +118,14 @@ function updateGrid() {
     cell.querySelectorAll('.player').forEach(p => p.remove());
   });
 
-  players.forEach((p, id) => {
+  players.forEach(p => {
     if (p.pos.x < 0) return;
     const cell = document.querySelector(`.cell[data-x="${p.pos.x}"][data-y="${p.pos.y}"]`);
     if (cell) {
       const el = document.createElement('div');
       el.className = 'player';
       el.style.backgroundColor = p.color;
-      el.textContent = id === myPlayerId ? 'Т' : 'Д';
+      el.textContent = p.name[0];
       cell.appendChild(el);
     }
   });
@@ -143,33 +136,23 @@ function revealAround(x, y) {
     for (let dy = -1; dy <= 1; dy++) {
       const nx = x + dx, ny = y + dy;
       if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
-        const key = `${nx},${ny}`;
-        if (!revealed.has(key)) {
-          revealed.add(key);
-          supabase.channel(ROOM).send({
-            type: 'broadcast',
-            event: 'reveal',
-            payload: {x: nx, y: ny}
-          });
-        }
+        revealed.add(`${nx},${ny}`);
       }
     }
   }
 }
 
 function handleClick(x, y) {
-  const key = `${x},${y}`;
   if (!spawned) {
     if (balance < 1) return alert('Нужно 1 TON для входа');
     if (!confirm('Войти? 1 TON')) return;
     balance -= 1; totalSpent += 1;
     spawned = true;
     playerPos = {x, y};
-    players.set(myPlayerId, {pos: playerPos, color: '#00f'});
+    players[0].pos = {x, y};
     revealAround(x, y);
-    sendPosition();
     updateUI(); updateGrid();
-    log(`Заспавнился на (${x},${y})`);
+    log(`Ты заспавнился (${x},${y})`);
     checkTreasure(x, y);
     return;
   }
@@ -181,94 +164,79 @@ function handleClick(x, y) {
     if (!confirm('Переместиться? 0.01 TON')) return;
     balance -= 0.01; totalSpent += 0.01;
     playerPos = {x, y};
-    players.set(myPlayerId, {pos: playerPos, color: '#00f'});
+    players[0].pos = {x, y};
     revealAround(x, y);
-    sendPosition();
     updateUI(); updateGrid();
-    log(`Переход на (${x},${y})`);
+    log(`Переход → (${x},${y})`);
     checkTreasure(x, y);
   } else alert('Только соседние клетки!');
 }
 
 function checkTreasure(x, y) {
   const key = `${x},${y}`;
-  if (!treasures[key] || foundTreasures.has(key)) return;
-
-  // Проверяем, сколько игроков на клетке
-  let playersOnCell = 0;
-  players.forEach(p => {
-    if (p.pos.x === x && p.pos.y === y) playersOnCell++;
-  });
+  if (!treasures[key]) return;
 
   const percent = discoveryPercents[discoveredOrder];
   const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
-  const share = parseFloat((value / playersOnCell).toFixed(2));
 
-  if (confirm(`💎 КЛАД! Сумма: ${value} TON (делится на ${playersOnCell}: по ${share} TON)\nЗабрать?`)) {
+  if (confirm(`💎 КЛАД! Сумма: ${value} TON\nЗабрать?`)) {
+    balance += value;
+    foundTreasures.add(key);
+    delete treasures[key];
+    discoveredOrder++;
+    log(`Забрал клад +${value} TON (${percent}%)`);
+    updateUI(); updateGrid();
+
+    if (Object.keys(treasures).length === 0) alert('🏆 Все сокровища найдены!');
+  }
+}
+
+// СИМУЛЯЦИЯ БОТОВ
+function simulateBots() {
+  players.slice(1).forEach(p => {
+    const nx = Math.max(0, Math.min(SIZE-1, p.pos.x + (Math.random()>0.5?1:-1)));
+    const ny = Math.max(0, Math.min(SIZE-1, p.pos.y + (Math.random()>0.5?1:-1)));
+    p.pos.x = nx; p.pos.y = ny;
+    revealAround(nx, ny);
+  });
+  updateGrid();
+  log('Боты сделали ход');
+}
+
+function simulateJointMove() {
+  log('🔥 Симуляция совместного хода...');
+  const targetX = treasurePos[0][0], targetY = treasurePos[0][1]; // первый клад
+  players.slice(1).forEach((p,i) => {
+    p.pos.x = targetX;
+    p.pos.y = targetY;
+    revealAround(p.pos.x, p.pos.y);
+  });
+  updateGrid();
+
+  const key = `${targetX},${targetY}`;
+  if (treasures[key]) {
+    const percent = discoveryPercents[discoveredOrder];
+    const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
+    const numPlayers = players.length;
+    const share = parseFloat((value / numPlayers).toFixed(2));
     balance += share;
     foundTreasures.add(key);
     delete treasures[key];
     discoveredOrder++;
-
-    supabase.channel(ROOM).send({
-      type: 'broadcast',
-      event: 'found_treasure',
-      payload: {key, order: discoveredOrder, share}
-    });
-
-    log(`Забрал клад +${share} TON (деление на ${playersOnCell})`);
+    log(`Клад делится на ${numPlayers}! Ты получил ${share} TON`);
     updateUI(); updateGrid();
   }
 }
 
-function sendPosition() {
-  supabase.channel(ROOM).send({
-    type: 'broadcast',
-    event: 'position',
-    payload: {id: myPlayerId, x: playerPos.x, y: playerPos.y, color: '#00f'}
-  });
-}
-
-function connectRealtime() {
-  const channel = supabase.channel(ROOM);
-
-  channel
-    .on('broadcast', { event: 'reveal' }, p => {
-      revealed.add(`${p.payload.x},${p.payload.y}`);
-      updateGrid();
-      log(`Друг открыл клетку`);
-    })
-    .on('broadcast', { event: 'position' }, p => {
-      players.set(p.payload.id, {pos: {x: p.payload.x, y: p.payload.y}, color: p.payload.color});
-      updateGrid();
-      log(`Друг переместился`);
-    })
-    .on('broadcast', { event: 'found_treasure' }, p => {
-      foundTreasures.add(p.payload.key);
-      delete treasures[p.payload.key};
-      discoveredOrder = p.payload.order;
-      balance += p.payload.share; // получаем долю
-      updateGrid();
-      log(`Клад найден другом! +${p.payload.share} TON`);
-    })
-    .subscribe(status => {
-      if (status === 'SUBSCRIBED') log('✅ Онлайн подключён!');
-    });
-}
-
-function updateUI() {
-  document.getElementById('balance').textContent = balance.toFixed(2);
-}
-
+// UI
+function updateUI() { document.getElementById('balance').textContent = balance.toFixed(2); }
 function log(msg) {
   const l = document.getElementById('log');
   const t = new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   l.innerHTML += `<div>[${t}] ${msg}</div>`;
   l.scrollTop = l.scrollHeight;
 }
-
 function deposit() { balance += 10; updateUI(); log('+10 TON (тест)'); }
-
 function withdrawPrompt() {
   const s = prompt('Сколько вывести? Доступно: ' + balance.toFixed(2));
   if (s && +s > 0 && +s <= balance) { balance -= +s; updateUI(); log(`Выведено ${s} TON`); }
