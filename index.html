@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — v4.1 Online</title>
+<title>TON Treasure Hunt — v4.2 Online</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js"></script>
@@ -38,25 +38,27 @@
   <button onclick="zoomOut()">−</button>
 </div>
 
-<div id="log">v4.1 Online готова! Открывай с другом — всё видно в реальном времени.</div>
+<div id="log">v4.2 готова! Карта отображается, зум/drag работают. Онлайн с другом.</div>
 
 <script>
 // Telegram
 const tg = window.Telegram.WebApp;
 tg.expand(); tg.ready(); tg.setHeaderColor('#111111'); tg.setBackgroundColor('#0a0a0a');
 
-// ================== SUPABASE (твои ключи) ==================
+// Supabase
 const SUPABASE_URL = 'https://yrbmrtmsqydklqgpdakz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_bTXlaXpI9WpusTXDLml99A_k2_-_TOW';
 const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ================== ИГРА ==================
+// Игра
 const SIZE = 40;
 let balance = 10.0;
 let totalSpent = 0.0;
 let spawned = false;
 let playerPos = {x:-1, y:-1};
-const ROOM = 'room1'; // общая комната для тебя и друга
+const ROOM = 'room1';
+let myPlayerId = tg.initDataUnsafe?.user?.id || 'player1'; // уникальный ID
+let players = new Map(); // все игроки: id → {pos, color}
 
 let revealed = new Set();
 let treasures = {};
@@ -67,16 +69,16 @@ let discoveredOrder = 0;
 const treasurePos = [[5,5],[35,5],[5,35],[35,35],[15,10],[25,30],[10,25],[30,15],[8,18],[32,22],[18,8],[22,32]];
 
 let panInstance;
-let myPlayerId = tg.initDataUnsafe?.user?.id || 'demo-user';
 
 function init() {
   treasurePos.forEach(p => treasures[`${p[0]},${p[1]}`] = true);
+  players.set(myPlayerId, {pos: playerPos, color: '#00f'}); // ты синий
   createGrid();
   initPanzoom();
   updateGrid();
   updateUI();
   connectRealtime();
-  log('✅ Подключено к Supabase! Открывай игру у друга — будете видеть друг друга.');
+  log('✅ v4.2 загружена. Тести с другом — иконки видны!');
 }
 
 function createGrid() {
@@ -87,18 +89,19 @@ function createGrid() {
     for (let x = 0; x < SIZE; x++) {
       const cell = document.createElement('div');
       cell.className = 'cell fog';
-      cell.dataset.x = x; cell.dataset.y = y;
+      cell.dataset.x = x;
+      cell.dataset.y = y;
       cell.addEventListener('click', () => handleClick(x, y));
+      cell.addEventListener('touchstart', (e) => { e.preventDefault(); handleClick(x, y); }, {passive: false});
       grid.appendChild(cell);
     }
   }
 }
 
 function initPanzoom() {
-  const grid = document.getElementById('grid');
-  panInstance = panzoom(grid, {
+  panInstance = panzoom(document.getElementById('grid'), {
     maxScale: 5,
-    minScale: 0.3,
+    minScale: 0.5,
     smoothScroll: true,
     bounds: true,
     zoomSpeed: 0.3
@@ -108,33 +111,66 @@ function initPanzoom() {
 function zoomIn() { panInstance.zoomIn(0.3); }
 function zoomOut() { panInstance.zoomOut(0.3); }
 
+function updateGrid() {
+  document.querySelectorAll('.cell').forEach(cell => {
+    const x = +cell.dataset.x, y = +cell.dataset.y;
+    const key = `${x},${y}`;
+    const isRev = revealed.has(key);
+    const hasTreasure = treasures[key] && !foundTreasures.has(key);
+
+    cell.classList.toggle('fog', !isRev);
+    cell.classList.toggle('revealed', isRev && !hasTreasure);
+    cell.classList.toggle('treasure', isRev && hasTreasure);
+    cell.innerHTML = (isRev && hasTreasure) ? '💎' : '';
+
+    cell.querySelectorAll('.player').forEach(p => p.remove());
+  });
+
+  players.forEach((p, id) => {
+    if (p.pos.x < 0) return;
+    const cell = document.querySelector(`.cell[data-x="${p.pos.x}"][data-y="${p.pos.y}"]`);
+    if (cell) {
+      const el = document.createElement('div');
+      el.className = 'player';
+      el.style.backgroundColor = p.color;
+      el.textContent = id === myPlayerId ? 'Т' : 'Д';
+      cell.appendChild(el);
+    }
+  });
+}
+
 function revealAround(x, y) {
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const nx = x + dx, ny = y + dy;
       if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
-        revealed.add(`${nx},${ny}`);
-        supabase.channel(ROOM).send({
-          type: 'broadcast',
-          event: 'reveal',
-          payload: {x: nx, y: ny, from: myPlayerId}
-        });
+        const key = `${nx},${ny}`;
+        if (!revealed.has(key)) {
+          revealed.add(key);
+          supabase.channel(ROOM).send({
+            type: 'broadcast',
+            event: 'reveal',
+            payload: {x: nx, y: ny}
+          });
+        }
       }
     }
   }
 }
 
 function handleClick(x, y) {
+  const key = `${x},${y}`;
   if (!spawned) {
     if (balance < 1) return alert('Нужно 1 TON для входа');
     if (!confirm('Войти? 1 TON')) return;
     balance -= 1; totalSpent += 1;
     spawned = true;
     playerPos = {x, y};
+    players.set(myPlayerId, {pos: playerPos, color: '#00f'});
     revealAround(x, y);
-    sendPlayerPosition();
+    sendPosition();
     updateUI(); updateGrid();
-    log(`Ты заспавнился (${x},${y})`);
+    log(`Заспавнился на (${x},${y})`);
     checkTreasure(x, y);
     return;
   }
@@ -146,10 +182,11 @@ function handleClick(x, y) {
     if (!confirm('Переместиться? 0.01 TON')) return;
     balance -= 0.01; totalSpent += 0.01;
     playerPos = {x, y};
+    players.set(myPlayerId, {pos: playerPos, color: '#00f'});
     revealAround(x, y);
-    sendPlayerPosition();
+    sendPosition();
     updateUI(); updateGrid();
-    log(`Переход → (${x},${y})`);
+    log(`Переход на (${x},${y})`);
     checkTreasure(x, y);
   } else alert('Только соседние клетки!');
 }
@@ -161,7 +198,7 @@ function checkTreasure(x, y) {
   const percent = discoveryPercents[discoveredOrder];
   const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
 
-  if (confirm(`💎 КЛАД ВИДЕН ВСЕМ!\nСумма: ${value} TON\nЗабрать?`)) {
+  if (confirm(`💎 КЛАД! Сумма: ${value} TON\nЗабрать?`)) {
     balance += value;
     foundTreasures.add(key);
     delete treasures[key];
@@ -169,26 +206,23 @@ function checkTreasure(x, y) {
 
     supabase.channel(ROOM).send({
       type: 'broadcast',
-      event: 'treasure_found',
-      payload: {x, y, value, order: discoveredOrder}
+      event: 'found_treasure',
+      payload: {key, order: discoveredOrder}
     });
 
-    log(`ТЫ ЗАБРАЛ КЛАД +${value} TON`);
+    log(`Забрал клад +${value} TON`);
     updateUI(); updateGrid();
-
-    if (Object.keys(treasures).length === 0) alert('🏆 Все сокровища найдены!');
   }
 }
 
-function sendPlayerPosition() {
+function sendPosition() {
   supabase.channel(ROOM).send({
     type: 'broadcast',
-    event: 'player_move',
-    payload: {id: myPlayerId, x: playerPos.x, y: playerPos.y}
+    event: 'position',
+    payload: {id: myPlayerId, x: playerPos.x, y: playerPos.y, color: '#00f'}
   });
 }
 
-// ================== REALTIME ==================
 function connectRealtime() {
   const channel = supabase.channel(ROOM);
 
@@ -196,39 +230,38 @@ function connectRealtime() {
     .on('broadcast', { event: 'reveal' }, p => {
       revealed.add(`${p.payload.x},${p.payload.y}`);
       updateGrid();
-      if (p.payload.from !== myPlayerId) log(`Друг открыл клетку (${p.payload.x},${p.payload.y})`);
+      log(`Друг открыл клетку`);
     })
-    .on('broadcast', { event: 'player_move' }, p => {
-      if (p.payload.id === myPlayerId) return;
-      // рисуем друга (в будущем можно сделать массив игроков)
-      log(`Друг переместился на (${p.payload.x},${p.payload.y})`);
+    .on('broadcast', { event: 'position' }, p => {
+      players.set(p.payload.id, {pos: {x: p.payload.x, y: p.payload.y}, color: p.payload.id === myPlayerId ? '#00f' : '#f00'});
       updateGrid();
+      log(`Друг на (${p.payload.x},${p.payload.y})`);
     })
-    .on('broadcast', { event: 'treasure_found' }, p => {
-      const key = `${p.payload.x},${p.payload.y}`;
-      if (!foundTreasures.has(key)) {
-        foundTreasures.add(key);
-        delete treasures[key];
-        discoveredOrder = p.payload.order;
-        log(`Друг нашёл клад! (${p.payload.value} TON)`);
-        updateGrid();
-      }
+    .on('broadcast', { event: 'found_treasure' }, p => {
+      foundTreasures.add(p.payload.key);
+      delete treasures[p.payload.key];
+      discoveredOrder = p.payload.order;
+      updateGrid();
+      log(`Друг нашёл клад!`);
     })
-    .subscribe(() => log('✅ Онлайн с другом! Открой игру у него тоже.'));
-
-  // обновляем сетку каждые 2 секунды для синхронизации
-  setInterval(updateGrid, 2000);
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') log('✅ Онлайн подключён!');
+    });
 }
 
-// UI функции
-function updateUI() { document.getElementById('balance').textContent = balance.toFixed(2); }
+function updateUI() {
+  document.getElementById('balance').textContent = balance.toFixed(2);
+}
+
 function log(msg) {
   const l = document.getElementById('log');
   const t = new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
   l.innerHTML += `<div>[${t}] ${msg}</div>`;
   l.scrollTop = l.scrollHeight;
 }
+
 function deposit() { balance += 10; updateUI(); log('+10 TON (тест)'); }
+
 function withdrawPrompt() {
   const s = prompt('Сколько вывести? Доступно: ' + balance.toFixed(2));
   if (s && +s > 0 && +s <= balance) { balance -= +s; updateUI(); log(`Выведено ${s} TON`); }
