@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — v4.3 Рабочая</title>
+<title>TON Treasure Hunt — v4.4 Рабочая</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js"></script>
@@ -38,7 +38,7 @@
   <button onclick="zoomOut()">−</button>
 </div>
 
-<div id="log">v4.3 готова! Карта работает, зум/drag на месте. Тести с другом.</div>
+<div id="log">v4.4 готова! Карта работает, зум/drag на месте. Тести с другом.</div>
 
 <script>
 // Telegram
@@ -48,7 +48,7 @@ tg.expand(); tg.ready(); tg.setHeaderColor('#111111'); tg.setBackgroundColor('#0
 // Supabase
 const SUPABASE_URL = 'https://yrbmrtmsqydklqgpdakz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_bTXlaXpI9WpusTXDLml99A_k2_-_TOW';
-const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth: {persistSession: false}});
 
 // Игра
 const SIZE = 40;
@@ -78,7 +78,7 @@ function init() {
   updateGrid();
   updateUI();
   connectRealtime();
-  log('✅ v4.3 загружена. Всё работает!');
+  log('✅ v4.4 загружена. Всё работает!');
 }
 
 function createGrid() {
@@ -99,8 +99,8 @@ function createGrid() {
 
 function initPanzoom() {
   panInstance = panzoom(document.getElementById('grid'), {
-    maxZoom: 5,
-    minZoom: 0.5,
+    maxScale: 5,
+    minScale: 0.5,
     smoothScroll: true,
     bounds: true,
     zoomSpeed: 0.3
