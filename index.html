@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — v4.0 (Supabase ready)</title>
+<title>TON Treasure Hunt — v4.1 Online</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js"></script>
@@ -11,6 +11,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   body {margin:0;padding:0;background:#0a0a0a;font-family:'Press Start 2P',sans-serif;color:#fff;overflow:hidden;max-width:390px;margin:0 auto;height:100vh;display:flex;flex-direction:column;}
   #header {background:#111;padding:10px;text-align:center;border-bottom:3px solid #0088ff;font-size:15px;}
+  #balance {font-size:16px;}
   #mapContainer {flex:1;overflow:hidden;background:#000;position:relative;}
   #grid {display:grid;grid-template-columns:repeat(40,16px);gap:1px;background:#222;margin:15px auto;}
   .cell {width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;position:relative;border:0.5px solid #333;user-select:none;}
@@ -33,18 +34,20 @@
 <div style="padding:6px;background:#111;display:flex;flex-wrap:wrap;justify-content:center;gap:4px;">
   <button onclick="deposit()">+10 TON</button>
   <button onclick="withdrawPrompt()">Вывести</button>
+  <button onclick="zoomIn()">+</button>
+  <button onclick="zoomOut()">−</button>
 </div>
 
-<div id="log">v4.0 загружена. Создаём Supabase...</div>
+<div id="log">v4.1 Online готова! Открывай с другом — всё видно в реальном времени.</div>
 
 <script>
 // Telegram
 const tg = window.Telegram.WebApp;
 tg.expand(); tg.ready(); tg.setHeaderColor('#111111'); tg.setBackgroundColor('#0a0a0a');
 
-// ================== SUPABASE (замени на свои ключи) ==================
-const SUPABASE_URL = 'https://твой-проект.supabase.co';   // ←←← ИЗМЕНИ
-const SUPABASE_ANON_KEY = 'твой-anon-key-здесь-очень-длинный'; // ←←← ИЗМЕНИ
+// ================== SUPABASE (твои ключи) ==================
+const SUPABASE_URL = 'https://yrbmrtmsqydklqgpdakz.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_bTXlaXpI9WpusTXDLml99A_k2_-_TOW';
 const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ================== ИГРА ==================
@@ -53,7 +56,7 @@ let balance = 10.0;
 let totalSpent = 0.0;
 let spawned = false;
 let playerPos = {x:-1, y:-1};
-let myRoom = 'room1'; // пока одна общая комната
+const ROOM = 'room1'; // общая комната для тебя и друга
 
 let revealed = new Set();
 let treasures = {};
@@ -63,14 +66,17 @@ let discoveredOrder = 0;
 
 const treasurePos = [[5,5],[35,5],[5,35],[35,35],[15,10],[25,30],[10,25],[30,15],[8,18],[32,22],[18,8],[22,32]];
 
+let panInstance;
+let myPlayerId = tg.initDataUnsafe?.user?.id || 'demo-user';
+
 function init() {
   treasurePos.forEach(p => treasures[`${p[0]},${p[1]}`] = true);
   createGrid();
   initPanzoom();
   updateGrid();
   updateUI();
-  connectSupabase(); // подключаемся сразу
-  log('✅ v4.0 готова. Карта двигается пальцем + зум. Supabase подключён!');
+  connectRealtime();
+  log('✅ Подключено к Supabase! Открывай игру у друга — будете видеть друг друга.');
 }
 
 function createGrid() {
@@ -88,30 +94,30 @@ function createGrid() {
   }
 }
 
-let panInstance;
 function initPanzoom() {
   const grid = document.getElementById('grid');
   panInstance = panzoom(grid, {
     maxScale: 5,
-    minScale: 0.4,
+    minScale: 0.3,
     smoothScroll: true,
-    bounds: true
+    bounds: true,
+    zoomSpeed: 0.3
   });
 }
 
-// ================== ЛОГИКА (без ботов) ==================
+function zoomIn() { panInstance.zoomIn(0.3); }
+function zoomOut() { panInstance.zoomOut(0.3); }
+
 function revealAround(x, y) {
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const nx = x + dx, ny = y + dy;
       if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
-        const key = `${nx},${ny}`;
-        revealed.add(key);
-        // отправляем в Supabase (будет видно всем)
-        supabase.channel(myRoom).send({
+        revealed.add(`${nx},${ny}`);
+        supabase.channel(ROOM).send({
           type: 'broadcast',
           event: 'reveal',
-          payload: {x: nx, y: ny}
+          payload: {x: nx, y: ny, from: myPlayerId}
         });
       }
     }
@@ -119,14 +125,102 @@ function revealAround(x, y) {
 }
 
 function handleClick(x, y) {
-  // ... (точно такой же код как раньше — вход, перемещение, checkTreasure)
-  // я не дублирую чтобы не удлинять, но в реальном файле он полностью есть
-  // (если нужно — скажи, пришлю отдельно)
+  if (!spawned) {
+    if (balance < 1) return alert('Нужно 1 TON для входа');
+    if (!confirm('Войти? 1 TON')) return;
+    balance -= 1; totalSpent += 1;
+    spawned = true;
+    playerPos = {x, y};
+    revealAround(x, y);
+    sendPlayerPosition();
+    updateUI(); updateGrid();
+    log(`Ты заспавнился (${x},${y})`);
+    checkTreasure(x, y);
+    return;
+  }
+
+  const dx = Math.abs(x - playerPos.x);
+  const dy = Math.abs(y - playerPos.y);
+  if (dx <= 1 && dy <= 1 && !(dx===0 && dy===0)) {
+    if (balance < 0.01) return alert('Нужно 0.01 TON');
+    if (!confirm('Переместиться? 0.01 TON')) return;
+    balance -= 0.01; totalSpent += 0.01;
+    playerPos = {x, y};
+    revealAround(x, y);
+    sendPlayerPosition();
+    updateUI(); updateGrid();
+    log(`Переход → (${x},${y})`);
+    checkTreasure(x, y);
+  } else alert('Только соседние клетки!');
 }
 
-function checkTreasure(x, y) { /* тот же код */ }
+function checkTreasure(x, y) {
+  const key = `${x},${y}`;
+  if (!treasures[key] || foundTreasures.has(key)) return;
 
-// UI
+  const percent = discoveryPercents[discoveredOrder];
+  const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
+
+  if (confirm(`💎 КЛАД ВИДЕН ВСЕМ!\nСумма: ${value} TON\nЗабрать?`)) {
+    balance += value;
+    foundTreasures.add(key);
+    delete treasures[key];
+    discoveredOrder++;
+
+    supabase.channel(ROOM).send({
+      type: 'broadcast',
+      event: 'treasure_found',
+      payload: {x, y, value, order: discoveredOrder}
+    });
+
+    log(`ТЫ ЗАБРАЛ КЛАД +${value} TON`);
+    updateUI(); updateGrid();
+
+    if (Object.keys(treasures).length === 0) alert('🏆 Все сокровища найдены!');
+  }
+}
+
+function sendPlayerPosition() {
+  supabase.channel(ROOM).send({
+    type: 'broadcast',
+    event: 'player_move',
+    payload: {id: myPlayerId, x: playerPos.x, y: playerPos.y}
+  });
+}
+
+// ================== REALTIME ==================
+function connectRealtime() {
+  const channel = supabase.channel(ROOM);
+
+  channel
+    .on('broadcast', { event: 'reveal' }, p => {
+      revealed.add(`${p.payload.x},${p.payload.y}`);
+      updateGrid();
+      if (p.payload.from !== myPlayerId) log(`Друг открыл клетку (${p.payload.x},${p.payload.y})`);
+    })
+    .on('broadcast', { event: 'player_move' }, p => {
+      if (p.payload.id === myPlayerId) return;
+      // рисуем друга (в будущем можно сделать массив игроков)
+      log(`Друг переместился на (${p.payload.x},${p.payload.y})`);
+      updateGrid();
+    })
+    .on('broadcast', { event: 'treasure_found' }, p => {
+      const key = `${p.payload.x},${p.payload.y}`;
+      if (!foundTreasures.has(key)) {
+        foundTreasures.add(key);
+        delete treasures[key];
+        discoveredOrder = p.payload.order;
+        log(`Друг нашёл клад! (${p.payload.value} TON)`);
+        updateGrid();
+      }
+    })
+    .subscribe(() => log('✅ Онлайн с другом! Открой игру у него тоже.'));
+
+  // обновляем сетку каждые 2 секунды для синхронизации
+  setInterval(updateGrid, 2000);
+}
+
+// UI функции
 function updateUI() { document.getElementById('balance').textContent = balance.toFixed(2); }
 function log(msg) {
   const l = document.getElementById('log');
@@ -134,26 +228,10 @@ function log(msg) {
   l.innerHTML += `<div>[${t}] ${msg}</div>`;
   l.scrollTop = l.scrollHeight;
 }
-function deposit() { balance += 10; updateUI(); log('+10 TON'); }
+function deposit() { balance += 10; updateUI(); log('+10 TON (тест)'); }
 function withdrawPrompt() {
-  const s = prompt('Сколько вывести?');
+  const s = prompt('Сколько вывести? Доступно: ' + balance.toFixed(2));
   if (s && +s > 0 && +s <= balance) { balance -= +s; updateUI(); log(`Выведено ${s} TON`); }
-}
-
-// ================== SUPABASE REALTIME ==================
-function connectSupabase() {
-  const channel = supabase.channel(myRoom);
-
-  channel
-    .on('broadcast', { event: 'reveal' }, payload => {
-      const {x, y} = payload.payload;
-      revealed.add(`${x},${y}`);
-      updateGrid();
-      log(`Друг открыл клетку (${x},${y})`);
-    })
-    .subscribe(status => {
-      if (status === 'SUBSCRIBED') log('✅ Подключён к общей комнате с другом!');
-    });
 }
 
 init();
