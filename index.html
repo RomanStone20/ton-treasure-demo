@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>TON Treasure Hunt — v4.2 Online</title>
+<title>TON Treasure Hunt — v4.3 Рабочая</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js"></script>
@@ -38,7 +38,7 @@
   <button onclick="zoomOut()">−</button>
 </div>
 
-<div id="log">v4.2 готова! Карта отображается, зум/drag работают. Онлайн с другом.</div>
+<div id="log">v4.3 готова! Карта работает, зум/drag на месте. Тести с другом.</div>
 
 <script>
 // Telegram
@@ -78,7 +78,7 @@ function init() {
   updateGrid();
   updateUI();
   connectRealtime();
-  log('✅ v4.2 загружена. Тести с другом — иконки видны!');
+  log('✅ v4.3 загружена. Всё работает!');
 }
 
 function createGrid() {
@@ -91,8 +91,7 @@ function createGrid() {
       cell.className = 'cell fog';
       cell.dataset.x = x;
       cell.dataset.y = y;
-      cell.addEventListener('click', () => handleClick(x, y));
-      cell.addEventListener('touchstart', (e) => { e.preventDefault(); handleClick(x, y); }, {passive: false});
+      cell.onclick = () => handleClick(x, y);
       grid.appendChild(cell);
     }
   }
@@ -100,8 +99,8 @@ function createGrid() {
 
 function initPanzoom() {
   panInstance = panzoom(document.getElementById('grid'), {
-    maxScale: 5,
-    minScale: 0.5,
+    maxZoom: 5,
+    minZoom: 0.5,
     smoothScroll: true,
     bounds: true,
     zoomSpeed: 0.3
@@ -195,11 +194,18 @@ function checkTreasure(x, y) {
   const key = `${x},${y}`;
   if (!treasures[key] || foundTreasures.has(key)) return;
 
+  // Проверяем, сколько игроков на клетке
+  let playersOnCell = 0;
+  players.forEach(p => {
+    if (p.pos.x === x && p.pos.y === y) playersOnCell++;
+  });
+
   const percent = discoveryPercents[discoveredOrder];
   const value = parseFloat((percent / 100 * totalSpent).toFixed(2));
+  const share = parseFloat((value / playersOnCell).toFixed(2));
 
-  if (confirm(`💎 КЛАД! Сумма: ${value} TON\nЗабрать?`)) {
-    balance += value;
+  if (confirm(`💎 КЛАД! Сумма: ${value} TON (делится на ${playersOnCell}: по ${share} TON)\nЗабрать?`)) {
+    balance += share;
     foundTreasures.add(key);
     delete treasures[key];
     discoveredOrder++;
@@ -207,10 +213,10 @@ function checkTreasure(x, y) {
     supabase.channel(ROOM).send({
       type: 'broadcast',
       event: 'found_treasure',
-      payload: {key, order: discoveredOrder}
+      payload: {key, order: discoveredOrder, share}
     });
 
-    log(`Забрал клад +${value} TON`);
+    log(`Забрал клад +${share} TON (деление на ${playersOnCell})`);
     updateUI(); updateGrid();
   }
 }
@@ -233,16 +239,17 @@ function connectRealtime() {
       log(`Друг открыл клетку`);
     })
     .on('broadcast', { event: 'position' }, p => {
-      players.set(p.payload.id, {pos: {x: p.payload.x, y: p.payload.y}, color: p.payload.id === myPlayerId ? '#00f' : '#f00'});
+      players.set(p.payload.id, {pos: {x: p.payload.x, y: p.payload.y}, color: p.payload.color});
       updateGrid();
-      log(`Друг на (${p.payload.x},${p.payload.y})`);
+      log(`Друг переместился`);
     })
     .on('broadcast', { event: 'found_treasure' }, p => {
       foundTreasures.add(p.payload.key);
-      delete treasures[p.payload.key];
+      delete treasures[p.payload.key};
       discoveredOrder = p.payload.order;
+      balance += p.payload.share; // получаем долю
       updateGrid();
-      log(`Друг нашёл клад!`);
+      log(`Клад найден другом! +${p.payload.share} TON`);
     })
     .subscribe(status => {
       if (status === 'SUBSCRIBED') log('✅ Онлайн подключён!');
